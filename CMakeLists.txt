@@ -9,11 +9,24 @@ endif()
 message(STATUS "Building in ${CMAKE_BUILD_TYPE} mode")
 message(STATUS "Building with ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} on ${CMAKE_SYSTEM}")
 
-set(CMAKE_C_FLAGS "-pedantic -std=c99 -Wall -fstrict-aliasing -fno-omit-frame-pointer")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -Wextra -O0 -g3")
+set(CMAKE_C_FLAGS "-pedantic -std=c99 -Wall -Wextra -fstrict-aliasing -fno-omit-frame-pointer")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -Werror -O0 -g3")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O2 -g")
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
+
+
+# Version
+#
+set(SJS__VERSION_MAJOR 0)
+set(SJS__VERSION_MINOR 2)
+set(SJS__VERSION_PATCH 0)
+set(SJS__VERSION_SUFFIX "")
+configure_file (
+    "${CMAKE_SOURCE_DIR}/include/sjs/version.h.in"
+    "${CMAKE_SOURCE_DIR}/include/sjs/version.h"
+)
+
 
 # Defines for system.build
 #
@@ -61,10 +74,31 @@ if("${isSystemDir}" STREQUAL "-1")
 endif()
 
 
+add_definitions(
+    -D_GNU_SOURCE
+    -D_LARGEFILE_SOURCE
+    -D_FILE_OFFSET_BITS=64
+)
+
+
+# duktape
+#
+add_library(duktape STATIC
+    src/duktape.c
+)
+
+target_include_directories(duktape
+    PRIVATE ${CMAKE_SOURCE_DIR}/include/sjs
+)
+
+set_target_properties(duktape
+    PROPERTIES COMPILE_FLAGS "-fPIC -Wno-unused-function"
+)
+
+
 # libsjs
 #
 set(SOURCES
-    src/duktape.c
     src/modules.c
     src/util.c
     src/vm.c
@@ -89,9 +123,16 @@ target_include_directories(sjs
     PRIVATE ${CMAKE_SOURCE_DIR}/include/sjs
 )
 
-set_target_properties(sjs
-    PROPERTIES COMPILE_DEFINITIONS "_GNU_SOURCE"
+target_link_libraries(sjs
+    duktape
+    m
 )
+if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
+    target_link_libraries(sjs
+        dl
+        rt
+    )
+endif()
 
 
 # sjs
@@ -103,20 +144,11 @@ add_executable(sjs_cli
 
 set_target_properties(sjs_cli PROPERTIES
     OUTPUT_NAME "sjs"
-    COMPILE_DEFINITIONS "_GNU_SOURCE"
 )
 
 target_link_libraries(sjs_cli
     sjs
-    m
 )
-if("${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
-    target_link_libraries(sjs_cli
-        dl
-        rt
-    )
-endif()
-
 
 # install target
 #
@@ -134,21 +166,8 @@ install(DIRECTORY modules
         PATTERN "*.h" EXCLUDE
         PATTERN "*.swp" EXCLUDE)
 
+
 # modules
 #
 
-# path
-include(modules/path.cmake)
-
-# errno
-include(modules/errno.cmake)
-
-# net
-include(modules/net.cmake)
-
-# time
-include(modules/time.cmake)
-
-# io
-include(modules/io.cmake)
-
+include(modules/modules.cmake)
