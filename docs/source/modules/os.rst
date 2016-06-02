@@ -7,12 +7,27 @@ os
 This module exposes low level operating system facilities / syscalls.
 
 
+Functions
+---------
+
 .. js:function:: os.abort
 
     Aborts the execution of the process and forces a core dump.
 
     .. seealso::
         :man:`abort(3)`
+
+.. js:function:: os.chdir(path)
+
+    Changes the current working directory of the calling process to the directory specified in `path`.
+
+    .. seealso::
+        :man:`chdir(2)`
+
+.. js:function:: os.cloexec(fd, set)
+
+    Sets or clears the ``O_CLOEXEC`` flag on the given `fd`. Since version 0.3.0 all fds are created with
+    ``O_CLOEXEC`` set.
 
 .. js:function:: os.close(fd)
 
@@ -21,12 +36,84 @@ This module exposes low level operating system facilities / syscalls.
     .. seealso::
         :man:`close(2)`
 
+.. js:function:: os.dup(oldfd)
+
+    Duplicates the given file descriptor, returning the lowest available one.
+
+    .. seealso::
+        :man:`dup(2)`
+
+    .. note::
+        Since version 0.3.0 the fds are created with ``O_CLOEXEC`` set. You can undo this using :js:func:`os.cloexec`.
+
+.. js:function:: os.dup2(oldfd, newfd, [cloexec])
+
+    Duplicates `oldfd` into `newfd`, setting the ``O_CLOEXEC`` flag if indicated. It defaults to ``true``;
+
+    .. seealso::
+        :man:`dup2(2)`
+
+.. js:function:: os.execve(filename, [args], [envp])
+
+    Executes the program pointed to by `filename`.
+
+    :param filename: Program to be executed.
+    :param args: Arguments for the program. If an ``Array`` is passed, the first element should be the
+        program filename.
+    :param envp: Object containing the environment for the new program.
+
+    .. seealso::
+        :man:`execve(2)`
+
+.. js:function:: os.exit([status])
+
+    Ends the process with the specified `status`. It defaults to 0.
+
+    .. seealso::
+        :man:`exit(3)`
+
+    .. note::
+        At the moment no clean shutdown is performed.
+
+.. js:function:: os._exit(status)
+
+    Terminate the calling process "immediately".
+
+    .. seealso::
+        :man:`_exit(2)`
+
+.. js:function:: os.fork
+
+    Creates a new process duplicating the calling process. See :js:func:`os.waitpid` for how to wait for the
+    child process.
+
+    .. seealso::
+        :man:`fork(2)`
+
+.. js:function:: os:getpid
+
+    Returns the process id of the calling process.
+
+    .. seealso::
+        :man:`getpid(2)`
+
+.. js:function:: os:getppid
+
+    Returns the process id of the parent of the calling process.
+
+    .. seealso::
+        :man:`getppid(2)`
+
 .. js:function:: os.isatty(fd)
 
     Returns ``true`` if the given `fd` refers to a valid terminal type device, ``false`` otherwise.
 
     .. seealso::
         :man:`isatty(3)`
+
+.. js:function:: os.nonblock(fd, set)
+
+    Sets or clears the ``O_NONBLOCK`` flag on the given `fd`.
 
 .. js:function:: os.open(path, flags, mode)
 
@@ -55,6 +142,9 @@ This module exposes low level operating system facilities / syscalls.
     .. seealso::
         :man:`open(2)`
 
+    .. note::
+        Since version 0.3.0 the fds are created with ``O_CLOEXEC`` set. You can undo this using :js:func:`os.cloexec`.
+
 .. js:function:: os.pipe
 
     Creates a `pipe` (an object that allows unidirectional data flow) and allocates a pair of file descriptors.
@@ -63,6 +153,9 @@ This module exposes low level operating system facilities / syscalls.
 
     .. seealso::
         :man:`pipe(2)`
+
+    .. note::
+        Since version 0.3.0 the fds are created with ``O_CLOEXEC`` set. You can undo this using :js:func:`os.cloexec`.
 
 .. js:function:: os.read([nread])
 
@@ -81,6 +174,13 @@ This module exposes low level operating system facilities / syscalls.
 
     .. seealso::
         :man:`scandir(3)`
+
+.. js:function:: os.setsid
+
+    Create a new session if the calling process is not a process group leader.
+
+    .. seealso::
+        :man:`setsid(2)`
 
 .. js:function:: os.stat(path)
 
@@ -128,11 +228,19 @@ This module exposes low level operating system facilities / syscalls.
 .. js:function:: os.urandom(bytes)
 
     Get `bytes` from the system `CSPRNG <https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator>`_.
-    This is implemented by reading from ``/dev/urandom`` except on Linux systems supporting the :man:`getrandom(2)`
-    syscall.
+    This is implemented by reading from ``/dev/urandom``. On Linux systems supporting the :man:`getrandom(2)`
+    syscall that one is used, and in OSX :man:`arc4random_buf(3)`.
 
     `bytes` can be an integer or a ``Buffer`` object. If it's an integer a ``Buffer`` will be returned of the specified
     size. If it's already a ``Buffer``, if will be filled.
+
+.. js:function:: os.waitpid(pid, [options])
+
+    Wait for state changes in a child of the calling process. The return value is an object with ``pid`` and ``status``
+    properties. The ``os.W*`` family of functions can be used to get more information about the status.
+
+    .. seealso::
+        :man:`waitpid(2)`
 
 .. js:function:: os.write(data)
 
@@ -176,9 +284,19 @@ This module exposes low level operating system facilities / syscalls.
 
     Returns ``true`` if the `mode` of the file indicates it's a socket.
 
+.. js:function:: os.WIFEXITED(status)
+.. js:function:: os.WEXITSTATUS(status)
+.. js:function:: os.WIFSIGNALED(status)
+.. js:function:: os.WTERMSIG(status)
+.. js:function:: os.WIFSTOPPED(status)
+.. js:function:: os.WSTOPSIG(status)
+.. js:function:: os.WIFCONTINUED(status)
+
+    Helper functions to get status information from a child process. See the man page: :man:`waitpid(2)`.
+
 
 Constants
-^^^^^^^^^
+---------
 
 .. js:attribute:: os.O_*
 
@@ -191,3 +309,7 @@ Constants
 .. js:attribute:: os.S_I*
 
     Flags for file mode used in :js:func:`os.stat`.
+
+.. js:attribute:: os.W*
+
+    Flags used in the options field on :js:func:`os.waitpid`.

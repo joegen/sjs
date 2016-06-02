@@ -4,14 +4,37 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 #include <stdio.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "../src/platform-inl.h"
 #include <sjs/sjs.h>
 
+
+static int sjs__socket(int domain, int type, int protocol) {
+    int r;
+#ifdef __linux__
+    r = socket(domain, type | SOCK_CLOEXEC, protocol);
+    if (r < 0) {
+        return -errno;
+    }
+    return r;
+#endif
+    int fd;
+    r = socket(domain, type, protocol);
+    if (r < 0) {
+        return r;
+    }
+    fd = r;
+    r = sjs__cloexec(fd, 1);
+    if (r < 0) {
+        sjs__close(fd);
+        return r;
+    }
+    return fd;
+}
 
 /*
  * Create a socket. Args:
@@ -21,17 +44,17 @@
 static duk_ret_t sock_socket(duk_context* ctx) {
     int domain;
     int type;
-    int fd;
+    int r;
 
     domain = duk_require_int(ctx, 0);
     type = duk_require_int(ctx, 1);
 
-    fd = socket(domain, type, 0);
-    if (fd == -1) {
-        SJS_THROW_ERRNO_ERROR();
+    r = sjs__socket(domain, type, 0);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR2(-r);
         return -42;    /* control never returns here */
     } else {
-        duk_push_int(ctx, fd);
+        duk_push_int(ctx, r);
         return 1;
     }
 }
@@ -326,21 +349,6 @@ static duk_ret_t sock_getpeername(duk_context* ctx) {
 
 
 /*
- * Close the socket. Args:
- * - 0: fd
- */
-static duk_ret_t sock_close(duk_context* ctx) {
-    int fd;
-
-    fd = duk_require_int(ctx, 0);
-    close(fd);
-
-    duk_push_undefined(ctx);
-    return 1;
-}
-
-
-/*
  * Shutdown the socket. Args:
  * - 0: fd
  * - 1: how
@@ -388,6 +396,29 @@ static duk_ret_t sock_listen(duk_context* ctx) {
 }
 
 
+static int sjs__accept(int sockfd) {
+    int r;
+#if defined(__linux__)
+    r = accept4(sockfd, NULL, NULL, SOCK_CLOEXEC);
+    if (r < 0) {
+        return -errno;
+    }
+    return r;
+#endif
+    int fd;
+    r = accept(sockfd, NULL, NULL);
+    if (r < 0) {
+        return -errno;
+    }
+    fd = r;
+    r = sjs__cloexec(fd, 1);
+    if (r < 0) {
+        sjs__close(fd);
+        return r;
+    }
+    return fd;
+}
+
 /*
  * Accept an incoming connection. Args:
  * - 0: fd
@@ -398,9 +429,9 @@ static duk_ret_t sock_accept(duk_context* ctx) {
 
     fd = duk_require_int(ctx, 0);
 
-    r = accept(fd, NULL, NULL);
+    r = sjs__accept(fd);
     if (r < 0) {
-        SJS_THROW_ERRNO_ERROR();
+        SJS_THROW_ERRNO_ERROR2(-r);
         return -42;    /* control never returns here */
     }
 
@@ -615,32 +646,6 @@ static duk_ret_t sock_inet_pton(duk_context* ctx) {
 
 
 /*
- * Set the socket to non-blocking mode
- * - 0: fd
- * - 1: set
- */
-static duk_ret_t sock_set_nonblocking(duk_context* ctx) {
-    int r, fd;
-    duk_bool_t set;
-
-    fd = duk_require_int(ctx, 0);
-    set = duk_require_boolean(ctx, 1);
-
-    do {
-	    r = ioctl(fd, FIONBIO, &set);
-    } while (r == -1 && errno == EINTR);
-
-    if (r) {
-        SJS_THROW_ERRNO_ERROR();
-        return -42;    /* control never returns here */
-    }
-
-    duk_push_undefined(ctx);
-    return 1;
-}
-
-
-/*
  * Set a socket option
  * - 0: fd
  * - 1: level
@@ -718,6 +723,36 @@ static duk_ret_t sock_getsockopt(duk_context* ctx) {
 }
 
 
+static int sjs__socketpair(int domain, int type, int protocol, int sv[2]) {
+    int r;
+#if defined(__linux__)
+    r = socketpair(domain, type | SOCK_CLOEXEC, protocol, sv);
+    if (r < 0) {
+        return -errno;
+    }
+    return r;
+#endif
+    r = socketpair(domain, type, protocol, sv);
+    if (r < 0) {
+        return -errno;
+    }
+    r = sjs__cloexec(sv[0], 1);
+    if (r < 0) {
+        goto error;
+    }
+    r = sjs__cloexec(sv[1], 1);
+    if (r < 0) {
+        goto error;
+    }
+    return r;
+error:
+    sjs__close(sv[0]);
+    sjs__close(sv[1]);
+    sv[0] = -1;
+    sv[1] = -1;
+    return r;
+}
+
 /*
  * Create a socketpair. Args:
  * - 0: domain
@@ -730,9 +765,9 @@ static duk_ret_t sock_socketpair(duk_context* ctx) {
     domain = duk_require_int(ctx, 0);
     type = duk_require_int(ctx, 1);
 
-    r = socketpair(domain, type, 0, fds);
-    if (r == -1) {
-        SJS_THROW_ERRNO_ERROR();
+    r = sjs__socketpair(domain, type, 0, fds);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR2(-r);
         return -42;    /* control never returns here */
     } else {
         duk_push_array(ctx);
@@ -796,7 +831,6 @@ static const duk_number_list_entry module_consts[] = {
 static const duk_function_list_entry module_funcs[] = {
     /* name, function, nargs */
     { "socket", sock_socket, 2 },
-    { "close", sock_close, 1 },
     { "bind", sock_bind, 3 },
     { "connect", sock_connect, 3 },
     { "getsockname", sock_getsockname, 1 },
@@ -809,7 +843,6 @@ static const duk_function_list_entry module_funcs[] = {
     { "recvfrom", sock_recvfrom, 2 },
     { "sendto", sock_sendto, 4 },
     { "inet_pton", sock_inet_pton, 2 },
-    { "set_nonblocking", sock_set_nonblocking, 2 },
     { "setsockopt", sock_setsockopt, 4 },
     { "getsockopt", sock_getsockopt, 4 },
     { "socketpair", sock_socketpair, 2 },

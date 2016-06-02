@@ -25,6 +25,7 @@ Standard library
     modules/objectutil
     modules/os
     modules/path
+    modules/random
     modules/system
     modules/time
 
@@ -37,10 +38,6 @@ These functions / objects are accessible globally.
 .. js:data:: global
 
     A reference to the global scope. This can be used to attach functions / objects which will be accesible globally.
-
-.. js:data:: system
-
-    A reference to the :ref:`modsystem` module.
 
 .. js:function:: require(id)
 

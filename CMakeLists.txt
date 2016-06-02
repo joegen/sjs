@@ -9,7 +9,7 @@ endif()
 message(STATUS "Building in ${CMAKE_BUILD_TYPE} mode")
 message(STATUS "Building with ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} on ${CMAKE_SYSTEM}")
 
-set(CMAKE_C_FLAGS "-pedantic -std=c99 -Wall -Wextra -fstrict-aliasing -fno-omit-frame-pointer")
+set(CMAKE_C_FLAGS "$ENV{CFLAGS} -pedantic -std=c99 -Wall -Wextra -fstrict-aliasing -fno-omit-frame-pointer")
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -Werror -O0 -g3")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O2 -g")
 
@@ -100,6 +100,7 @@ set_target_properties(duktape
 #
 set(SOURCES
     src/modules.c
+    src/system.c
     src/util.c
     src/vm.c
     src/version.c

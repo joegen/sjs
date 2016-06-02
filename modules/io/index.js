@@ -52,6 +52,16 @@ File.prototype.read = function(nread) {
 }
 
 
+File.prototype.readline = function(nread) {
+    checkFile.call(this);
+    if (nread === undefined || typeof nread === 'number') {
+        nread = (nread >>> 0) || 4096;
+    }
+    // we will validate if the passed argument is a buffer in C
+    return _io.fgets(this._f, nread);
+}
+
+
 File.prototype.write = function(data) {
     checkFile.call(this);
     return _io.fwrite(this._f, data);
@@ -88,7 +98,7 @@ function fdopen(fd, mode, path) {
 
 function fileDealloc(f) {
     if (f._f !== null) {
-        _io.close(f._f);
+        _io.fclose(f._f);
     }
 }
 

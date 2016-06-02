@@ -142,6 +142,45 @@ function S_ISSOCK(mode) {
 }
 
 
+function execve(filename, argv, envp) {
+    // normalize argv
+    if (argv == null) {
+        argv = [filename];
+    } else if (!Array.isArray(argv)) {
+        throw new Error('"argv" must be null, undefined or an Array');
+    }
+    if (envp == null) {
+        envp = [];
+    } else {
+        var envArray = [];
+        for (var prop in envp) {
+            envArray.push(prop + '=' + envp[prop]);
+        }
+        envp = envArray;
+    }
+    _os.execve(filename, argv, envp);
+}
+
+
+function waitpid(pid, options) {
+    return _os.waitpid(pid, options >>> 0);
+}
+
+
+function dup2(oldfd, newfd, cloexec) {
+    if (cloexec == null) {
+        cloexec = true;
+    }
+    return _os.dup2(oldfd, newfd, !!cloexec);
+}
+
+
+function exit(status) {
+    // TODO: properly tear down the vm
+    _os.exit(status >>> 0);
+}
+
+
 // internal helpers
 
 function stringToFlags(flag) {
@@ -197,6 +236,14 @@ exports.scandir  = _os.scandir;
 exports.stat     = stat;
 exports.unlink   = _os.unlink;
 exports.urandom  = urandom;
+exports.getpid   = _os.getpid;
+exports.getppid  = _os.getppid;
+exports.dup      = _os.dup;
+exports.dup2     = dup2;
+exports.chdir    = _os.chdir;
+exports.exit     = exit;
+exports._exit    = _os._exit;
+exports.setsid   = _os.setsid;
 
 exports.S_IMODE  = S_IMODE;
 exports.S_ISDIR  = S_ISDIR;
@@ -206,6 +253,21 @@ exports.S_ISREG  = S_ISREG;
 exports.S_ISFIFO = S_ISFIFO;
 exports.S_ISLNK  = S_ISLNK;
 exports.S_ISSOCK = S_ISSOCK;
+
+exports.fork         = _os.fork;
+exports.execve       = execve;
+exports.waitpid      = waitpid;
+exports.WIFEXITED    = _os.WIFEXITED;
+exports.WEXITSTATUS  = _os.WEXITSTATUS;
+exports.WIFSIGNALED  = _os.WIFSIGNALED;
+exports.WTERMSIG     = _os.WTERMSIG;
+exports.WIFSTOPPED   = _os.WIFSTOPPED;
+exports.WSTOPSIG     = _os.WSTOPSIG;
+exports.WIFCONTINUED = _os.WIFCONTINUED;
+
+exports.cloexec  = _os.cloexec;
+exports.nonblock = _os.nonblock;
+
 
 // extract constants
 for (var k in _os.c) {

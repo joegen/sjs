@@ -1,15 +1,49 @@
 
+#include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "../src/platform-inl.h"
 #include <sjs/sjs.h>
 
+
+static int sjs__open(const char *pathname, int flags, mode_t mode) {
+    static int no_cloexec_support;
+    int r;
+
+    if (no_cloexec_support == 0) {
+#if defined(O_CLOEXEC)
+        r = open(pathname, flags | O_CLOEXEC, mode);
+        if (r >= 0) {
+            return r;
+        }
+        if (errno != EINVAL) {
+            return -errno;
+        }
+        no_cloexec_support = 1;
+#endif
+    }
+
+    int fd;
+    r = open(pathname, flags, mode);
+    if (r < 0) {
+        return -errno;
+    }
+    fd = r;
+    r = sjs__cloexec(fd, 1);
+    if (r < 0) {
+        sjs__close(fd);
+        return r;
+    }
+    return fd;
+}
 
 /*
  * Open a file for low level I/O. Args:
@@ -25,9 +59,9 @@ static duk_ret_t os_open(duk_context* ctx) {
     flags = duk_require_int(ctx, 1);
     mode = duk_require_int(ctx, 2);
 
-    r = open(path, flags, mode);
-    if (r == -1) {
-        SJS_THROW_ERRNO_ERROR();
+    r = sjs__open(path, flags, mode);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR2(-r);
         return -42;    /* control never returns here */
     } else {
         duk_push_int(ctx, r);
@@ -120,10 +154,14 @@ static duk_ret_t os_write(duk_context* ctx) {
  * - 0: fd
  */
 static duk_ret_t os_close(duk_context* ctx) {
-    int fd;
+    int fd, r;
 
     fd = duk_require_int(ctx, 0);
-    close(fd);
+    r = sjs__close(fd);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR2(-r);
+        return -42;    /* control never returns here */
+    }
 
     duk_push_undefined(ctx);
     return 1;
@@ -137,20 +175,50 @@ static duk_ret_t os_abort(duk_context* ctx) {
 }
 
 
+static int sjs__pipe(int fds[2]) {
+    int r;
+#if defined(__linux__)
+    r = pipe2(fds, O_CLOEXEC);
+    if (r < 0) {
+        return -errno;
+    }
+    return r;
+#endif
+    r = pipe(fds);
+    if (r < 0) {
+        return -errno;
+    }
+    r = sjs__cloexec(fds[0], 1);
+    if (r < 0) {
+        goto error;
+    }
+    r = sjs__cloexec(fds[1], 1);
+    if (r < 0) {
+        goto error;
+    }
+    return r;
+error:
+    sjs__close(fds[0]);
+    sjs__close(fds[1]);
+    fds[0] = -1;
+    fds[1] = -1;
+    return r;
+}
+
 static duk_ret_t os_pipe(duk_context* ctx) {
     int fds[2];
     int r;
 
-    r = pipe(fds);
+    r = sjs__pipe(fds);
     if (r < 0) {
-        SJS_THROW_ERRNO_ERROR();
+        SJS_THROW_ERRNO_ERROR2(-r);
         return -42;    /* control never returns here */
     } else {
         duk_push_array(ctx);
         duk_push_int(ctx, fds[0]);
-    	duk_put_prop_index(ctx, -2, 0);
+        duk_put_prop_index(ctx, -2, 0);
         duk_push_int(ctx, fds[1]);
-    	duk_put_prop_index(ctx, -2, 1);
+        duk_put_prop_index(ctx, -2, 1);
         return 1;
     }
 }
@@ -275,17 +343,17 @@ static duk_ret_t os_stat(duk_context* ctx) {
         duk_push_uint(ctx, 0);    /* st_gen */
 #endif
 
-	/* times, convert to ms */
+    /* times, convert to ms */
 #if defined(__APPLE__)
         duk_push_number(ctx, sjs__timespec2ms(st.st_atimespec));
         duk_push_number(ctx, sjs__timespec2ms(st.st_mtimespec));
         duk_push_number(ctx, sjs__timespec2ms(st.st_ctimespec));
         duk_push_number(ctx, sjs__timespec2ms(st.st_birthtimespec));
 #else
-	duk_push_number(ctx, st.st_atime * 1000);
-	duk_push_number(ctx, st.st_mtime * 1000);
-	duk_push_number(ctx, st.st_ctime * 1000);
-	duk_push_number(ctx, st.st_ctime * 1000);    /* st_birthtim */
+        duk_push_number(ctx, st.st_atime * 1000);
+        duk_push_number(ctx, st.st_mtime * 1000);
+        duk_push_number(ctx, st.st_ctime * 1000);
+        duk_push_number(ctx, st.st_ctime * 1000);    /* st_birthtim */
 #endif
 
         duk_call_method(ctx, 16 /* number of args */);
@@ -313,13 +381,24 @@ static duk_ret_t os_unlink(duk_context* ctx) {
 
 /* read `size` bytes from /dev/urandom */
 static int sjs__urandom(void* vbuf, size_t size) {
-    int fd;
+    int fd, err;
     ssize_t r;
+    struct stat st;
     char* buf = vbuf;
 
-    fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0) {
+    err = open("/dev/urandom", O_RDONLY);
+    if (err < 0) {
         return -errno;
+    }
+    fd = err;
+    if (fstat(fd, &st) < 0) {
+        sjs__close(fd);
+        return -errno;
+    }
+    if (!S_ISCHR(st.st_mode)) {
+        /* not a character device! */
+        sjs__close(fd);
+        return -EIO;
     }
 
     while (size > 0) {
@@ -327,15 +406,14 @@ static int sjs__urandom(void* vbuf, size_t size) {
             r = read(fd, buf, size);
         } while (r < 0 && errno == EINTR);
         if (r < 0) {
-            r = -errno;
-            close(fd);
-            return r;
+            sjs__close(fd);
+            return -errno;
         }
         buf += r;
         size -= r;
     }
 
-    close(fd);
+    sjs__close(fd);
     return 0;
 }
 
@@ -372,6 +450,10 @@ static int sjs__sys_random(void* vbuf, size_t size) {
         }
     }
 #endif
+#ifdef __APPLE__
+    arc4random_buf(vbuf, size);
+    return 0;
+#endif
     return sjs__urandom(vbuf, size);
 }
 
@@ -382,13 +464,291 @@ static duk_ret_t os_urandom(duk_context* ctx) {
 
     buf = duk_require_buffer_data(ctx, 0, &nbytes);
 
-    /* TODO: use getrandom(2) on Linux */
     r = sjs__sys_random(buf, nbytes);
     if (r < 0) {
         SJS_THROW_ERRNO_ERROR2(-r);
         return -42;    /* control never returns here */
     } else {
         duk_push_undefined(ctx);
+        return 1;
+    }
+}
+
+
+static duk_ret_t os_fork(duk_context* ctx) {
+    pid_t pid;
+
+    pid = fork();
+    if (pid < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    }
+
+    duk_push_uint(ctx, pid);
+    return 1;
+}
+
+
+static duk_ret_t os_execve(duk_context* ctx) {
+    const char* filename;
+    size_t nargs, nenv;
+    int r;
+
+    filename = duk_require_string(ctx, 0);
+    assert(duk_is_array(ctx, 1));
+    assert(duk_is_array(ctx, 2));
+    nargs = duk_get_length(ctx, 1);
+    nenv = duk_get_length(ctx, 2);
+
+    char* args[nargs+1];
+    for (size_t i = 0; i < nargs; i++) {
+        duk_get_prop_index(ctx, 1, i);
+        args[i] = (char*) duk_require_string(ctx, -1);
+        duk_pop(ctx);
+    }
+    args[nargs] = NULL;
+
+    char* env[nenv+1];
+    for (size_t i = 0; i < nenv; i++) {
+        duk_get_prop_index(ctx, 2, i);
+        env[i] = (char*) duk_require_string(ctx, -1);
+        duk_pop(ctx);
+    }
+    env[nenv] = NULL;
+
+    r = execve(filename, args, env);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    }
+
+    return -42;    /* control never returns here */
+}
+
+
+static duk_ret_t os_waitpid(duk_context* ctx) {
+    pid_t pid, r;
+    int options, status;
+
+    pid = duk_require_int(ctx, 0);
+    options = duk_require_int(ctx, 1);
+    status = 0;
+
+    r = waitpid(pid, &status, options);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    } else {
+        duk_push_object(ctx);
+        duk_push_uint(ctx, r);
+        duk_put_prop_string(ctx, -2, "pid");
+        duk_push_int(ctx, status);
+        duk_put_prop_string(ctx, -2, "status");
+        return 1;
+    }
+}
+
+
+static duk_ret_t os_WIFEXITED(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_boolean(ctx, WIFEXITED(status));
+    return 1;
+}
+
+
+static duk_ret_t os_WEXITSTATUS(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_int(ctx, WEXITSTATUS(status));
+    return 1;
+}
+
+
+static duk_ret_t os_WIFSIGNALED(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_boolean(ctx, WIFSIGNALED(status));
+    return 1;
+}
+
+
+static duk_ret_t os_WTERMSIG(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_int(ctx, WTERMSIG(status));
+    return 1;
+}
+
+
+static duk_ret_t os_WIFSTOPPED(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_boolean(ctx, WIFSTOPPED(status));
+    return 1;
+}
+
+
+static duk_ret_t os_WSTOPSIG(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_int(ctx, WSTOPSIG(status));
+    return 1;
+}
+
+
+static duk_ret_t os_WIFCONTINUED(duk_context* ctx) {
+    int status;
+    status = duk_require_int(ctx, 0);
+    duk_push_boolean(ctx, WIFCONTINUED(status));
+    return 1;
+}
+
+
+static duk_ret_t os_cloexec(duk_context* ctx) {
+    int fd, r;
+    duk_bool_t set;
+
+    fd = duk_require_int(ctx, 0);
+    set = duk_require_boolean(ctx, 1);
+
+    r = sjs__cloexec(fd, set);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR2(-r);
+        return -42;    /* control never returns here */
+    } else {
+        duk_push_undefined(ctx);
+        return 1;
+    }
+}
+
+
+static duk_ret_t os_nonblock(duk_context* ctx) {
+    int fd, r;
+    duk_bool_t set;
+
+    fd = duk_require_int(ctx, 0);
+    set = duk_require_boolean(ctx, 1);
+
+    r = sjs__nonblock(fd, set);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR2(-r);
+        return -42;    /* control never returns here */
+    } else {
+        duk_push_undefined(ctx);
+        return 1;
+    }
+}
+
+
+static duk_ret_t os_getpid(duk_context* ctx) {
+    pid_t pid = getpid();
+    duk_push_uint(ctx, pid);
+    return 1;
+}
+
+
+static duk_ret_t os_getppid(duk_context* ctx) {
+    pid_t pid = getppid();
+    duk_push_uint(ctx, pid);
+    return 1;
+}
+
+
+static duk_ret_t os_dup(duk_context* ctx) {
+    int oldfd, newfd, r;
+
+    oldfd = duk_require_int(ctx, 0);
+    r = dup(oldfd);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    }
+    newfd = r;
+    r = sjs__cloexec(newfd, 1);
+    if (r < 0) {
+        sjs__close(newfd);
+        SJS_THROW_ERRNO_ERROR2(-r);
+        return -42;    /* control never returns here */
+    }
+    duk_push_int(ctx, newfd);
+    return 1;
+}
+
+
+static duk_ret_t os_dup2(duk_context* ctx) {
+    int oldfd, newfd, r;
+    duk_bool_t cloexec;
+
+    oldfd = duk_require_int(ctx, 0);
+    newfd = duk_require_int(ctx, 1);
+    cloexec = duk_require_boolean(ctx, 2);
+
+#if defined(__linux__)
+    r = dup3(oldfd, newfd, cloexec ? O_CLOEXEC : 0);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    }
+    goto end;
+#endif
+    r = dup2(oldfd, newfd);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    }
+    r = sjs__cloexec(newfd, cloexec);
+    if (r < 0) {
+        sjs__close(newfd);
+        SJS_THROW_ERRNO_ERROR2(-r);
+        return -42;    /* control never returns here */
+    }
+    goto end;    /* pacify compiler */
+
+end:
+    duk_push_int(ctx, newfd);
+    return 1;
+}
+
+
+static duk_ret_t os_chdir(duk_context* ctx) {
+    const char* path;
+    int r;
+
+    path = duk_require_string(ctx, 0);
+    r = chdir(path);
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    }
+
+    duk_push_undefined(ctx);
+    return 1;
+}
+
+
+static duk_ret_t os_exit(duk_context* ctx) {
+    int status = duk_require_int(ctx, 0);
+    exit(status);
+    return -42;    /* control never returns here */
+}
+
+
+static duk_ret_t os__exit(duk_context* ctx) {
+    int status = duk_require_int(ctx, 0);
+    _exit(status);
+    return -42;    /* control never returns here */
+}
+
+
+static duk_ret_t os_setsid(duk_context* ctx) {
+    pid_t r;
+    r = setsid();
+    if (r < 0) {
+        SJS_THROW_ERRNO_ERROR();
+        return -42;    /* control never returns here */
+    } else {
+        duk_push_uint(ctx, r);
         return 1;
     }
 }
@@ -432,6 +792,10 @@ static const duk_number_list_entry module_consts[] = {
     X(S_IROTH),
     X(S_IWOTH),
     X(S_IXOTH),
+    /* options for waitpid */
+    X(WCONTINUED),
+    X(WNOHANG),
+    X(WUNTRACED),
     { NULL, 0.0 }
 };
 #undef X
@@ -439,19 +803,39 @@ static const duk_number_list_entry module_consts[] = {
 
 static const duk_function_list_entry module_funcs[] = {
     /* name, function, nargs */
-    { "open", os_open, 3 },
-    { "read", os_read, 2 },
-    { "write", os_write, 2 },
-    { "close", os_close, 1 },
-    { "abort", os_abort, 0 },
-    { "pipe", os_pipe, 0 },
-    { "isatty", os_isatty, 1 },
-    { "ttyname", os_ttyname, 1 },
-    { "getcwd", os_getcwd, 0 },
-    { "scandir", os_scandir, 1 },
-    { "stat", os_stat, 2 },
-    { "unlink", os_unlink, 1 },
-    { "urandom", os_urandom, 1 },
+    { "open",                   os_open,            3 },
+    { "read",                   os_read,            2 },
+    { "write",                  os_write,           2 },
+    { "close",                  os_close,           1 },
+    { "abort",                  os_abort,           0 },
+    { "pipe",                   os_pipe,            0 },
+    { "isatty",                 os_isatty,          1 },
+    { "ttyname",                os_ttyname,         1 },
+    { "getcwd",                 os_getcwd,          0 },
+    { "scandir",                os_scandir,         1 },
+    { "stat",                   os_stat,            2 },
+    { "unlink",                 os_unlink,          1 },
+    { "urandom",                os_urandom,         1 },
+    { "fork",                   os_fork,            0 },
+    { "execve",                 os_execve,          3 },
+    { "waitpid",                os_waitpid,         2 },
+    { "WIFEXITED",              os_WIFEXITED,       1 },
+    { "WEXITSTATUS",            os_WEXITSTATUS,     1 },
+    { "WIFSIGNALED",            os_WIFSIGNALED,     1 },
+    { "WTERMSIG",               os_WTERMSIG,        1 },
+    { "WIFSTOPPED",             os_WIFSTOPPED,      1 },
+    { "WSTOPSIG",               os_WSTOPSIG,        1 },
+    { "WIFCONTINUED",           os_WIFCONTINUED,    1 },
+    { "cloexec",                os_cloexec,         2 },
+    { "nonblock",               os_nonblock,        2 },
+    { "getpid",                 os_getpid,          0 },
+    { "getppid",                os_getppid,         0 },
+    { "dup",                    os_dup,             1 },
+    { "dup2",                   os_dup2,            3 },
+    { "chdir",                  os_chdir,           1 },
+    { "exit",                   os_exit,            1 },
+    { "_exit",                  os__exit,           1 },
+    { "setsid",                 os_setsid,          0 },
     { NULL, NULL, 0 }
 };
 

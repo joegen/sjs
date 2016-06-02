@@ -26,6 +26,9 @@ The `Socket` object is a thin object oriented wrapper around :man:`socket(2)` an
     .. seealso::
         :man:`socket(2)`
 
+    .. note::
+        Since version 0.3.0 the fds are created with ``O_CLOEXEC`` set. You can undo this using :js:func:`os.cloexec`.
+
 .. js:attribute:: net.Socket.fd
 
     Returns the file descriptor representing the socket.
@@ -191,6 +194,10 @@ The `Socket` object is a thin object oriented wrapper around :man:`socket(2)` an
 
     Sets the socket in non-blocking mode if ``true``, or blocking mode if ``false``.
 
+
+Constants
+---------
+
 .. js:data:: net.AF_INET
 
     IPv4 socket domain.
@@ -217,6 +224,10 @@ The `Socket` object is a thin object oriented wrapper around :man:`socket(2)` an
 
     Shutdown modes for :js:func:`net.Socket.prototype.shutdown`.
 
+
+Functions
+---------
+
 .. js::function net.socketpair(domain, type, [options])
 
     Create a pair of conntected :js:class:`net.Socket` objects.
@@ -231,11 +242,14 @@ The `Socket` object is a thin object oriented wrapper around :man:`socket(2)` an
     .. seealso::
         :man:`socketpair(2)`
 
+    .. note::
+        Since version 0.3.0 the fds are created with ``O_CLOEXEC`` set. You can undo this using :js:func:`os.cloexec`.
+
 
 .. _sockaddrs:
 
 Socket addresses
-^^^^^^^^^^^^^^^^
+----------------
 
 Throughout this module, when an address is taken as a parameter or returned from a function, it's expressed as an
 object with different properties, depending on the address family:
@@ -343,8 +357,8 @@ getaddrinfo
     Options to be used with :js:func:`net.Socket.prototype.setsockopt` and :js:func:`net.Socket.prototype.setsockopt`.
 
 
-Utilities
----------
+Utility functions
+-----------------
 
 .. js:function:: net.isIP(address)
 

@@ -3,11 +3,12 @@
 const errno = require('errno');
 const _gai = require('_gai');
 const _socket = require('_socket');
+const os = require('os');
 const outil = require('objectutil');
 
 
 function Socket(domain, type, options) {
-    var options = options || {};
+    options = Object.assign({}, options);
 
     if (options.fd !== undefined && options.fd > -1) {
         this._fd = options.fd;
@@ -21,7 +22,7 @@ function Socket(domain, type, options) {
     this._nonblock = !!options.nonBlocking;
     if (this._nonblock) {
         try {
-            _socket.set_nonblocking(this._fd, this._nonblock);
+            os.nonblock(this._fd, this._nonblock);
         } catch (e) {
             this.close();
             throw e;
@@ -55,7 +56,7 @@ Socket.prototype.bind = function(address) {
 
 Socket.prototype.close = function() {
     if (this._fd !== -1) {
-        _socket.close(this._fd);
+        os.close(this._fd);
         this._fd = -1;
     }
 }
@@ -81,15 +82,15 @@ Socket.prototype.getpeername = function() {
 
 Socket.prototype.listen = function(backlog) {
     checkSocket.call(this);
-    var backlog = (backlog >>> 0) || 128;
+    backlog = positiveInt(backlog, 128);
     _socket.listen(this._fd, backlog);
 }
 
 
 Socket.prototype.recv = function(nrecv) {
     checkSocket.call(this);
-    if (nrecv === undefined || typeof nrecv === 'number') {
-        nrecv = (nrecv >>> 0) || 4096;
+    if (nrecv == null || typeof nrecv === 'number') {
+        nrecv = positiveInt(nrecv, 4096);
     }
     // we will validate if the passed argument is a buffer in C
     return _socket.recv(this._fd, nrecv);
@@ -104,8 +105,8 @@ Socket.prototype.send = function(data) {
 
 Socket.prototype.recvfrom = function(nrecv) {
     checkSocket.call(this);
-    if (nrecv === undefined || typeof nrecv === 'number') {
-        nrecv = (nrecv >>> 0) || 4096;
+    if (nrecv == null || typeof nrecv === 'number') {
+        nrecv = positiveInt(nrecv, 4096);
     }
     // we will validate if the passed argument is a buffer in C
     return _socket.recvfrom(this._fd, nrecv);
@@ -120,14 +121,14 @@ Socket.prototype.sendto = function(data, address) {
 
 Socket.prototype.shutdown = function(how) {
     checkSocket.call(this);
-    var how = how >>> 0;
     _socket.shutdown(this._fd, how);
 }
 
 
 Socket.prototype.setNonBlocking = function(set) {
     checkSocket.call(this);
-    _socket.set_nonblocking(this._fd, !!set);
+    os.nonblock(this._fd, !!set);
+    this._nonblock = !!set;
 }
 
 
@@ -148,15 +149,15 @@ Socket.prototype.getsockopt = function(level, option, size) {
 
 
 function getaddrinfo(hostname, servname, hints) {
-    var hints = hints || {};
+    hints = Object.assign({}, hints);
     return _gai.getaddrinfo(hostname, servname, hints);
 }
 
 
 function socketpair(domain, type, options) {
-    var options = options || {};
     var fds = _socket.socketpair(domain, type);
     var sock1, sock2;
+    options = Object.assign({}, options);
     sock1 = new Socket(domain, type, {fd: fds[0], nonBlocking: !!options.nonBlocking});
     try {
         sock2 = new Socket(domain, type, {fd: fds[1], nonBlocking: !!options.nonBlocking});
@@ -194,7 +195,7 @@ function isIP(address) {
 // finalizer: will get called when a Socket is garbage collected
 function socketDealloc(sock) {
     if (sock._fd !== -1) {
-        _socket.close(sock._fd);
+        os.close(sock._fd);
     }
 }
 
@@ -208,9 +209,7 @@ function checkSocket() {
 }
 
 
-function normalizeAddress(domain, address) {
-    var addr = address || {};
-
+function normalizeAddress(domain, addr) {
     if (domain === _socket.c.AF_UNIX) {
         if (typeof addr === 'string') {
             return {domain: _socket.c.AF_UNIX, path: addr};
@@ -218,9 +217,7 @@ function normalizeAddress(domain, address) {
             throw new TypeError('invalid address');
         }
     } else {
-        if (typeof addr !== 'object') {
-            throw new TypeError('invalid address');
-        }
+        addr = Object.assign({}, addr);
 
         if (!addr.host) {
             addr.host = domain === _socket.c.AF_INET6 ? '::' : '0.0.0.0';
@@ -231,16 +228,25 @@ function normalizeAddress(domain, address) {
             throw new Error('invalid IP address: ' + addr.host);
         } else if (iptype === 4) {
             addr.domain = _socket.c.AF_INET;
-            addr.port = addr.port >>> 0;
+            addr.port >>>= 0;
         } else {
             addr.domain = _socket.c.AF_INET6;
-            addr.port = addr.port >>> 0;
-            addr.flowinfo = addr.flowinfo >>> 0;
-            addr.scopeid = addr.scopeid >>> 0;
+            addr.port >>>= 0;
+            addr.flowinfo >>>= 0;
+            addr.scopeid >>>= 0;
         }
 
         return addr;
     }
+}
+
+
+function positiveInt(n, _default) {
+    if (n < 0) {
+        throw new RangeError('negative numbers are not allowed');
+    }
+    n >>>= 0;
+    return n || _default;
 }
 
 
