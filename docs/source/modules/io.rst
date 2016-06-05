@@ -12,9 +12,9 @@ File object
 
 .. js:class:: io.File
 
-    Class representing a file stream. This class created through :js:func:`io.open` or :js:func:`io.fdopen`.
-    The :ref:`modio` module also makes use of this class for wrapping
-    `stdio <https://en.wikipedia.org/wiki/C_file_input/output>`_ streams.
+    Class representing a `stdio <https://en.wikipedia.org/wiki/C_file_input/output>`_ stream.
+
+    This class created through :js:func:`io.open` or :js:func:`io.fdopen`, never directly.
 
 .. js:attribute:: io.File.path
 
@@ -76,15 +76,21 @@ File object
 Functions / attributes
 ----------------------
 
-.. js:function:: io.open(path, mode)
+.. js:function:: io.open(path, mode, [buffering])
 
     Opens the file at the given `path` in the given mode. Check :man:`fopen(3)` for the `mode` details.
     It returns a :js:class:`io.File` object.
 
-.. js:function:: io.fdopen(fd, mode, [path])
+    If `buffering` is specified, it must be ``-1`` (for default buffering), ``0`` (for unbuffeered) or ``1`` for
+    line buffering). See :man:`setvbuf(3)`.
+
+.. js:function:: io.fdopen(fd, mode, [path], [buffering])
 
     Opens the fiven file descriptor in `fd` as a :js:class:`io.File` object. The given `mode` must be compatible with
     how the file descriptor was opened. `path` is purely informational.
+
+    If `buffering` is specified, it must be ``-1`` (for default buffering), ``0`` (for unbuffeered) or ``1`` for
+    line buffering). See :man:`setvbuf(3)`.
 
     .. seealso::
         :man:`fdopen(3)`
