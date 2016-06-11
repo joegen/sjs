@@ -26,7 +26,7 @@ function daemonize() {
     os.dup2(devNull, 0, false);
     os.dup2(devNull, 1, false);
     os.dup2(devNull, 2, false);
-    if (devNull > 2) {
+    if (devNull > os.STDERR_FILENO) {
         os.close(devNull);
     }
 
@@ -142,7 +142,7 @@ Process.prototype.spawn = function() {
     } catch(e) {
         var fds = [].concat(errorPipe, stdinPipe, stdoutPipe, stderrPipe, devNull);
         fds.forEach(function(fd) {
-            if (fd > 2) {
+            if (fd > os.STDERR_FILENO) {
                 silentClose(fd);
             }
         });
@@ -168,6 +168,24 @@ Process.prototype.spawn = function() {
             }
 
             os.setsid();
+
+            if (options.uid !== null || options.gid !== null) {
+                // Drop all supplementary groups. When dropping privileges from root some extra groups
+                // may allow the process to act as root. Discard errors since this can fail if we are
+                // not root.
+                try {
+                    os.setgroups([]);
+                } catch (e) {
+                }
+            }
+
+            if (options.gid !== null) {
+                os.setgid(options.gid);
+            }
+
+            if (options.uid !== null) {
+                os.setuid(options.uid);
+            }
 
             if (options.env !== null) {
                 os.execvpe(options.executable, options.args, options.env);
@@ -199,7 +217,7 @@ Process.prototype.spawn = function() {
         // close fds
         var fds = [devNull, errorPipe[0], stdinPipe[0], stdoutPipe[1], stderrPipe[1]];
         fds.forEach(function(fd) {
-            if (fd > 2) {
+            if (fd > os.STDERR_FILENO) {
                 silentClose(fd);
             }
         });
@@ -283,7 +301,6 @@ function spawn(cmd, options) {
         procOptions.cwd = options.cwd;
     }
 
-    // TODO: implement this
     procOptions.uid = options.uid || null;
     procOptions.gid = options.gid || null;
 

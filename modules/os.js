@@ -203,6 +203,16 @@ function exit(status) {
 }
 
 
+function setgroups(groups) {
+    if (groups == null) {
+        groups = [];
+    } else if (!Array.isArray(groups)) {
+        throw new TypeError('must specify an Array or null / undefined');
+    }
+    _os.setgroups(groups);
+}
+
+
 // internal helpers
 
 function stringToFlags(flag) {
@@ -259,53 +269,67 @@ function normalizeEnvp(envp) {
 }
 
 
-exports.abort    = _os.abort;
-exports.open     = open;
-exports.read     = read;
-exports.write    = _os.write;
-exports.close    = _os.close;
-exports.pipe     = _os.pipe;
-exports.isatty   = _os.isatty;
-exports.ttyname  = _os.ttyname;
-exports.scandir  = _os.scandir;
-exports.stat     = stat;
-exports.unlink   = _os.unlink;
-exports.urandom  = urandom;
-exports.getpid   = _os.getpid;
-exports.getppid  = _os.getppid;
-exports.dup      = _os.dup;
-exports.dup2     = dup2;
-exports.chdir    = _os.chdir;
-exports.exit     = exit;
-exports._exit    = _os._exit;
-exports.setsid   = _os.setsid;
+// these have part in JS
+exports.dup2      = dup2;
+exports.execv     = execv;
+exports.execve    = execve;
+exports.execvp    = execvp;
+exports.execvpe   = execvpe;
+exports.exit      = exit;
+exports.open      = open;
+exports.read      = read;
+exports.setgroups = setgroups;
+exports.stat      = stat;
+exports.urandom   = urandom;
+exports.waitpid   = waitpid;
+exports.S_IMODE   = S_IMODE;
+exports.S_ISDIR   = S_ISDIR;
+exports.S_ISCHR   = S_ISCHR;
+exports.S_ISBLK   = S_ISBLK;
+exports.S_ISREG   = S_ISREG;
+exports.S_ISFIFO  = S_ISFIFO;
+exports.S_ISLNK   = S_ISLNK;
+exports.S_ISSOCK  = S_ISSOCK;
 
-exports.S_IMODE  = S_IMODE;
-exports.S_ISDIR  = S_ISDIR;
-exports.S_ISCHR  = S_ISCHR;
-exports.S_ISBLK  = S_ISBLK;
-exports.S_ISREG  = S_ISREG;
-exports.S_ISFIFO = S_ISFIFO;
-exports.S_ISLNK  = S_ISLNK;
-exports.S_ISSOCK = S_ISSOCK;
+// functions directly exposing the C implementation
+var funcs = [
+    '_exit',
+    'abort',
+    'chdir',
+    'close',
+    'dup',
+    'fork',
+    'getpid',
+    'getppid',
+    'getuid',
+    'geteuid',
+    'getgid',
+    'getegid',
+    'getgroups',
+    'isatty',
+    'pipe',
+    'scandir',
+    'setsid',
+    'setuid',
+    'setgid',
+    'ttyname',
+    'unlink',
+    'write',
+    'WIFEXITED',
+    'WEXITSTATUS',
+    'WIFSIGNALED',
+    'WTERMSIG',
+    'WIFSTOPPED',
+    'WSTOPSIG',
+    'WIFCONTINUED'
+];
+funcs.forEach(function(func) {
+    exports[func] = _os[func];
+});
 
-exports.fork         = _os.fork;
-exports.execv        = execv;
-exports.execve       = execve;
-exports.execvp       = execvp;
-exports.execvpe      = execvpe;
-exports.waitpid      = waitpid;
-exports.WIFEXITED    = _os.WIFEXITED;
-exports.WEXITSTATUS  = _os.WEXITSTATUS;
-exports.WIFSIGNALED  = _os.WIFSIGNALED;
-exports.WTERMSIG     = _os.WTERMSIG;
-exports.WIFSTOPPED   = _os.WIFSTOPPED;
-exports.WSTOPSIG     = _os.WSTOPSIG;
-exports.WIFCONTINUED = _os.WIFCONTINUED;
-
+// some extras
 exports.cloexec  = _os.cloexec;
 exports.nonblock = _os.nonblock;
-
 
 // extract constants
 for (var k in _os.c) {

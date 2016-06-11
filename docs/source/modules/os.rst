@@ -96,6 +96,34 @@ Functions
     .. seealso::
         :man:`fork(2)`
 
+.. js:function:: os.getegid
+
+    Returns the effective group ID of the calling process.
+
+    .. seealso::
+        :man:`getegid(2)`
+
+.. js:function:: os.geteuid
+
+    Returns the effective user ID of the calling process.
+
+    .. seealso::
+        :man:`geteuid(2)`
+
+.. js:function:: os.getgid
+
+    Returns the real group ID of the calling process.
+
+    .. seealso::
+        :man:`getgid(2)`
+
+.. js:function:: os.getgroups
+
+    Returns the supplementary group IDs of the calling process.
+
+    .. seealso::
+        :man:`getgroups(2)`
+
 .. js:function:: os:getpid
 
     Returns the process id of the calling process.
@@ -109,6 +137,13 @@ Functions
 
     .. seealso::
         :man:`getppid(2)`
+
+.. js:function:: os.getuid
+
+    Returns the real user ID of the calling process.
+
+    .. seealso::
+        :man:`getuid(2)`
 
 .. js:function:: os.isatty(fd)
 
@@ -180,6 +215,27 @@ Functions
 
     .. seealso::
         :man:`scandir(3)`
+
+.. js:function:: os.setgid(gid)
+
+    Sets the effective group ID of the calling process.
+
+    .. seealso::
+        :man:`setgid(2)`
+
+.. js:function:: os.setgroups(groups)
+
+    Sets the supplementary group IDs for the calling process.
+
+    .. seealso::
+        :man:`setgroups(2)`
+
+.. js:function:: os.setuid(uid)
+
+    Sets the effective user ID of the calling process.
+
+    .. seealso::
+        :man:`setuid(2)`
 
 .. js:function:: os.setsid
 
@@ -319,3 +375,7 @@ Constants
 .. js:attribute:: os.W*
 
     Flags used in the options field on :js:func:`os.waitpid`.
+
+.. js:attribute:: os.STD{IN,OUT,ERR}_FILENO
+
+    Constants represendint default file descriptors for stdio.
